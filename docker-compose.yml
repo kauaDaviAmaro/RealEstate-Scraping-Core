@@ -1,0 +1,76 @@
+services:
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: elite-scraper
+    volumes:
+      # Mount data directory for output
+      - ./data:/app/data
+      # Mount cache directory for robots.txt
+      - ./.cache:/app/.cache
+      # Mount .env file if it exists
+      - ./.env:/app/.env:ro
+    environment:
+      # Browser Configuration
+      - HEADLESS=${HEADLESS:-True}
+      - BROWSER_TYPE=${BROWSER_TYPE:-chromium}
+      
+      # Proxy Configuration
+      - PROXY_ENABLED=${PROXY_ENABLED:-False}
+      - PROXY_ROTATION_STRATEGY=${PROXY_ROTATION_STRATEGY:-round_robin}
+      - PROXY_MAX_FAILURES=${PROXY_MAX_FAILURES:-3}
+      - PROXY_COOLDOWN_SECONDS=${PROXY_COOLDOWN_SECONDS:-300}
+      - PROXY_CONFIG_FILE=${PROXY_CONFIG_FILE:-}
+      
+      # Fingerprint Configuration
+      - FINGERPRINT_REGION=${FINGERPRINT_REGION:-US}
+      - FINGERPRINT_ROTATION=${FINGERPRINT_ROTATION:-True}
+      
+      # Human Behavior Configuration
+      - HUMAN_BEHAVIOR_ENABLED=${HUMAN_BEHAVIOR_ENABLED:-True}
+      - MIN_DELAY=${MIN_DELAY:-1.0}
+      - MAX_DELAY=${MAX_DELAY:-4.0}
+      - SCROLL_DELAY_MIN=${SCROLL_DELAY_MIN:-0.5}
+      - SCROLL_DELAY_MAX=${SCROLL_DELAY_MAX:-2.0}
+      - MOUSE_MOVEMENT_ENABLED=${MOUSE_MOVEMENT_ENABLED:-True}
+      - SCROLL_ENABLED=${SCROLL_ENABLED:-True}
+      
+      # Compliance Configuration
+      - RESPECT_ROBOTS_TXT=${RESPECT_ROBOTS_TXT:-True}
+      - ROBOTS_CACHE_DIR=${ROBOTS_CACHE_DIR:-.cache/robots}
+      - ROBOTS_CACHE_TTL=${ROBOTS_CACHE_TTL:-3600}
+      
+      # Retry Configuration
+      - MAX_RETRIES=${MAX_RETRIES:-3}
+      - RETRY_DELAY=${RETRY_DELAY:-2.0}
+      - RETRY_BACKOFF=${RETRY_BACKOFF:-2.0}
+      
+      # Timeout Configuration
+      - PAGE_LOAD_TIMEOUT=${PAGE_LOAD_TIMEOUT:-30000}
+      - NAVIGATION_TIMEOUT=${NAVIGATION_TIMEOUT:-30000}
+      
+      # Concurrency Configuration
+      - MAX_CONCURRENT=${MAX_CONCURRENT:-3}
+      
+      # Output Configuration
+      - OUTPUT_DIR=${OUTPUT_DIR:-data}
+      - SAVE_IMAGES=${SAVE_IMAGES:-True}
+      
+      # Logging Configuration
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FILE=${LOG_FILE:-}
+      
+      # Proxy environment variables (if using PROXY_N format)
+      # Add as many as needed:
+      # - PROXY_1=${PROXY_1:-}
+      # - PROXY_2=${PROXY_2:-}
+    shm_size: '2gb'  # Increase shared memory for Playwright
+    restart: unless-stopped
+    networks:
+      - scraper-network
+
+networks:
+  scraper-network:
+    driver: bridge
+
