@@ -195,12 +195,12 @@ class FingerprintManager:
             return "Win32"
         elif "mac" in ua_lower or "darwin" in ua_lower:
             return "MacIntel"
-        elif "linux" in ua_lower:
-            return "Linux x86_64"
         elif "android" in ua_lower:
-            return "Linux armv7l"
+            return "Linux armv7l"  # Check Android before Linux (Android UAs contain "Linux")
         elif "iphone" in ua_lower or "ipad" in ua_lower:
             return "iPhone"
+        elif "linux" in ua_lower:
+            return "Linux x86_64"
         else:
             return "Win32"  # Default
     

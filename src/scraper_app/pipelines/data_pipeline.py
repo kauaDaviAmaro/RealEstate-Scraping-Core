@@ -33,7 +33,8 @@ class DataPipeline:
         max_concurrent: Optional[int] = None,
         proxy_manager: Optional[ProxyManager] = None,
         compliance_manager: Optional[ComplianceManager] = None,
-        human_behavior: Optional[HumanBehavior] = None
+        human_behavior: Optional[HumanBehavior] = None,
+        deep_search_only: bool = False
     ):
         """
         Initializes the data pipeline
@@ -45,12 +46,14 @@ class DataPipeline:
             proxy_manager: ProxyManager instance
             compliance_manager: ComplianceManager instance
             human_behavior: HumanBehavior instance
+            deep_search_only: If True, treat all URLs as individual listings and skip search page scraping
         """
         self.urls = urls
         self.output_dir = Path(output_dir or Config.OUTPUT_DIR)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.max_concurrent = max_concurrent or Config.MAX_CONCURRENT
         self.results: List[Dict] = []
+        self.deep_search_only = deep_search_only
         
         self.proxy_manager = proxy_manager
         self.compliance_manager = compliance_manager or ComplianceManager(
@@ -167,6 +170,27 @@ class DataPipeline:
         page = await browser_manager.create_page()
         service = ZapImoveisService(page, self.human_behavior)
         
+        # If deep_search_only mode, treat all URLs as individual listings
+        if self.deep_search_only:
+            logger.info(f"Deep search only mode: Processing {url} as individual listing")
+            result = await service.scrape_listing(url, deep_scrape=True)
+            
+            # Save listing immediately
+            if result and "error" not in result:
+                if Config.SAVE_IMAGES:
+                    images = result.get("images")
+                    if images:
+                        logger.info(f"Found {len(images) if isinstance(images, list) else 'unknown'} images for listing {result.get('url', 'unknown')}")
+                        await self._download_listing_images(result)
+                    else:
+                        logger.debug(f"No images found for listing {result.get('url', 'unknown')}")
+                
+                await self.save_single_listing_to_csv(result, url)
+            
+            await browser_manager.mark_proxy_success()
+            return result
+        
+        # Normal mode: check if URL is a search URL
         if self._is_search_url(url):
             max_pages = Config.MAX_PAGES
             page_callback = await self._create_page_callback(url)
@@ -215,7 +239,7 @@ class DataPipeline:
         self.stats["blocked"] += 1
         logger.warning(f"Blocked on {url}: {result.get('error')}")
         await browser_manager.mark_proxy_failure()
-        await browser_manager.rotate_fingerprint()
+        browser_manager.rotate_fingerprint()  # rotate_fingerprint is synchronous
     
     def _handle_successful_result(self, result: Dict, url: str) -> Dict:
         """Handle successful scraping result and update stats"""
@@ -634,9 +658,6 @@ class DataPipeline:
                 
                 await self._save_image(response, filepath)
                 logger.debug(f"Downloaded image: {filename}")
-                
-                if Config.HUMAN_BEHAVIOR_ENABLED:
-                    await self.human_behavior.random_delay(0.5, 1.0)
         except Exception as e:
             logger.debug(f"Error downloading image {image_url}: {e}")
     
@@ -721,9 +742,9 @@ class DataPipeline:
                             downloaded_paths.append(relative_path)
                             logger.debug(f"Downloaded image {i+1}/{len(images[:20])}: {filename}")
                             
-                            # Small delay between downloads
-                            if Config.HUMAN_BEHAVIOR_ENABLED:
-                                await asyncio.sleep(0.2)
+                            # Delay between downloads to avoid overwhelming the server
+                            if i < len(images[:20]) - 1:  # Don't delay after the last image
+                                await asyncio.sleep(Config.IMAGE_DOWNLOAD_DELAY)
                         else:
                             logger.debug(f"Failed to download image {image_url}: HTTP {response.status}")
                 except Exception as e:
@@ -756,6 +777,9 @@ class DataPipeline:
         async with aiohttp.ClientSession() as session:
             for i, image_url in enumerate(images[:10]):  # Limit to 10 images
                 await self._download_single_image(session, image_url, i, output_path)
+                # Delay between downloads to avoid overwhelming the server
+                if i < len(images[:10]) - 1:  # Don't delay after the last image
+                    await asyncio.sleep(Config.IMAGE_DOWNLOAD_DELAY)
     
     async def run(self) -> None:
         """

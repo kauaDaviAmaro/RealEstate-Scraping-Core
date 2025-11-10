@@ -1,6 +1,6 @@
 # Advanced Web Scraping System
 
-![Test Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)
+![Test Coverage](https://img.shields.io/badge/coverage-74%25-green)
 ![Python](https://img.shields.io/badge/python-3.11+-blue)
 ![Playwright](https://img.shields.io/badge/playwright-1.40+-green)
 
@@ -141,8 +141,9 @@ This level of sophistication is what separates scrapers that are blocked within 
                               +---------------+   +--------------------+
                                    |     |   \
                                    |     |    \ uses
-                                   |     |     \
-                                   v     v      v
+                                   |     |       ___________
+                                                            \
+                                   v     v                  V
                            +-----------+ +--------------+ +---------------+
                            |ProxyManager| |FingerprintMgr| |HumanBehavior |
                            +-----------+ +--------------+ +---------------+
@@ -235,6 +236,7 @@ MAX_PAGES=
 # Output Configuration
 OUTPUT_DIR=data
 SAVE_IMAGES=True
+IMAGE_DOWNLOAD_DELAY=0.2
 
 # Logging Configuration
 LOG_LEVEL=INFO
@@ -285,7 +287,13 @@ playwright install chromium
 3. Run the scraper:
 
 ```bash
+# Normal mode: searches and extracts listings from search pages
 python -m src.scraper_app
+
+# Deep search only mode: processes URLs as individual listings (skip search page scraping)
+python -m src.scraper_app --deep-search-only
+# or
+python -m src.scraper_app --deep-only
 ```
 
 ## Proxy Configuration
@@ -426,6 +434,7 @@ Create the `config/proxies.json` file:
 
 - `OUTPUT_DIR`: Output directory for data
 - `SAVE_IMAGES`: Save property images (True/False)
+- `IMAGE_DOWNLOAD_DELAY`: Delay between image downloads in seconds (default: 0.2)
 
 ### Logging
 
@@ -462,20 +471,112 @@ The system automatically:
 6. Saves data to CSV and images (if enabled)
 7. Generates execution statistics
 
+### Deep Search Only Mode
+
+The `--deep-search-only` (or `--deep-only`) flag allows you to skip the search page scraping phase and directly process URLs as individual listings. This mode automatically reads from `scraped_data.csv` and processes only URLs that are missing deep search data.
+
+This is useful when:
+
+- You want to complete deep search for listings that were only partially scraped
+- You want to re-scrape existing listings with updated data
+- You want to skip the search/discovery phase and go straight to deep extraction
+
+**Usage:**
+
+```bash
+# Automatically reads URLs from data/scraped_data.csv that need deep search
+python -m src.scraper_app --deep-search-only
+```
+
+**How it works:**
+
+1. Reads `scraped_data.csv` from the output directory
+2. Identifies URLs that are missing deep search data (checks for fields like `full_address`, `advertiser_name`, `zap_code`, etc.)
+3. Processes only those URLs with deep scraping (no search page extraction)
+4. Updates the CSV with the new deep search data
+5. Images are downloaded if `SAVE_IMAGES=True`
+
+**Detection Logic:**
+
+A listing is considered to need deep search if it has less than 2 of the following fields filled:
+- `full_address`
+- `full_description`
+- `advertiser_name`
+- `advertiser_code`
+- `zap_code`
+- `phone_partial`
+- `has_whatsapp`
+- `iptu`
+- `condo_fee`
+- `suites`
+- `floor_level`
+
+**Fallback:**
+
+If no CSV file exists or no URLs need deep search, the system falls back to `discover_search_urls()` function.
+
 ## Testing
 
-Run tests with:
+The project includes a comprehensive test suite with **74% code coverage**, including:
+
+- **Unit Tests**: All core components (BrowserManager, ProxyManager, FingerprintManager, HumanBehavior, ComplianceManager, DataPipeline, Config)
+- **Integration Tests**: Real browser-based tests for ZapImoveisService
+- **End-to-End Tests**: Full pipeline tests with mocked and real scenarios
+- **Service Tests**: Extensive tests for data extraction methods
+
+### Running Tests
 
 ```bash
 # All tests
 pytest
 
-# With coverage
-pytest --cov=src
+# With coverage report
+pytest --cov=src --cov-report=term-missing
 
-# Specific tests
+# Specific test file
 pytest tests/test_zap_imoveis_service.py
+
+# Specific test class
+pytest tests/test_browser_manager.py::TestBrowserManager
+
+# Run with verbose output
+pytest -v
+
+# Run only failed tests
+pytest --lf
+
+# Run with no warnings
+pytest -W ignore
 ```
+
+### Test Structure
+
+```
+tests/
+├── conftest.py                          # Shared fixtures
+├── test_browser_manager.py              # BrowserManager tests
+├── test_proxy_manager.py                # ProxyManager tests
+├── test_fingerprint_manager.py          # FingerprintManager tests
+├── test_human_behavior.py               # HumanBehavior tests
+├── test_compliance_manager.py           # ComplianceManager tests
+├── test_data_pipeline.py                # DataPipeline tests
+├── test_config.py                       # Config tests
+├── test_zap_imoveis_service.py          # ZapImoveisService unit tests
+├── test_zap_imoveis_service_integration.py  # Integration tests
+├── test_system_e2e.py                   # End-to-end system tests
+└── test_deep_extraction.py              # Deep extraction tests
+```
+
+### Test Coverage
+
+Current coverage: **74%** (2446 total lines, 636 not covered)
+
+Coverage includes:
+- Core components: Browser management, proxy rotation, fingerprinting
+- Behavior simulation: Human-like interactions, delays, scrolling
+- Compliance: robots.txt handling, rate limiting
+- Data pipeline: URL processing, concurrency, error handling
+- Service layer: Data extraction, pagination, search results
 
 ## Troubleshooting
 

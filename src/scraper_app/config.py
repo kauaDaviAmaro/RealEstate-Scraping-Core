@@ -70,6 +70,7 @@ class Config:
     # Output Configuration
     OUTPUT_DIR: str = os.getenv("OUTPUT_DIR", "data")
     SAVE_IMAGES: bool = os.getenv("SAVE_IMAGES", "True").lower() == "true"
+    IMAGE_DOWNLOAD_DELAY: float = float(os.getenv("IMAGE_DOWNLOAD_DELAY", "0.2"))  # Delay between image downloads (seconds)
     
     # Logging Configuration
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
