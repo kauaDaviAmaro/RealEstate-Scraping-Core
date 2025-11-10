@@ -6,6 +6,7 @@ from playwright.async_api import Page
 from typing import Dict, List, Optional, Callable, Awaitable
 import asyncio
 import logging
+import os
 import random
 import time
 
@@ -175,14 +176,78 @@ class ZapImoveisService:
         try:
             page_start_time = time.time()
             
-            # Navigate to page - goto already waits, skip redundant wait
-            wait_strategy = Config.WAIT_UNTIL
+            # Navigate to page with networkidle wait for better content loading in Docker
+            # Use 'networkidle' instead of 'domcontentloaded' for Docker to ensure JS executes
+            wait_strategy = "networkidle" if os.getenv("DOCKER_CONTAINER") == "true" else Config.WAIT_UNTIL
             await self.page.goto(page_url, wait_until=wait_strategy, timeout=Config.NAVIGATION_TIMEOUT)
-            # Skip redundant wait - just tiny delay for dynamic content
-            await asyncio.sleep(0.05)
+            
+            # Debug: Check page title and URL to see what loaded
+            page_title = await self.page.title()
+            current_url = self.page.url
+            logger.debug(f"Page loaded - Title: {page_title[:100]}, URL: {current_url}")
+            
+            # Wait for property cards to appear (important for Docker/headless)
+            try:
+                await self.page.wait_for_selector('li[data-cy="rp-property-cd"]', timeout=10000)
+                logger.debug("Property cards detected on page")
+            except Exception as e:
+                logger.warning(f"Property cards not found after wait: {e}")
+                # Try to check if page loaded at all
+                page_content = await self.page.content()
+                content_length = len(page_content)
+                logger.warning(f"Page content length: {content_length} characters")
+                
+                # Check for common blocking/error indicators
+                blocking_indicators = [
+                    "captcha", "blocked", "access denied", "forbidden", 
+                    "cloudflare", "bot detection", "verify you are human"
+                ]
+                content_lower = page_content.lower()
+                found_indicators = [ind for ind in blocking_indicators if ind in content_lower]
+                if found_indicators:
+                    logger.error(f"Possible blocking detected! Found indicators: {found_indicators}")
+                
+                # Check for alternative selectors that might indicate the page structure
+                try:
+                    # Check if there's any listing-related content
+                    has_listing_text = "imovel" in content_lower or "venda" in content_lower or "aluguel" in content_lower
+                    logger.debug(f"Page contains listing-related text: {has_listing_text}")
+                    
+                    # Try to find any cards or listings with alternative selectors
+                    alt_selectors = [
+                        'article',
+                        '[class*="card"]',
+                        '[class*="listing"]',
+                        '[class*="property"]',
+                        'li',
+                        '[data-testid*="card"]'
+                    ]
+                    for alt_selector in alt_selectors:
+                        count = await self.page.evaluate(f"""
+                            () => {{
+                                const elements = document.querySelectorAll('{alt_selector}');
+                                return elements.length;
+                            }}
+                        """)
+                        if count > 0:
+                            logger.debug(f"Found {count} elements with selector '{alt_selector}'")
+                except Exception as debug_error:
+                    logger.debug(f"Error during debug checks: {debug_error}")
+            
+            # Additional wait for dynamic content
+            await asyncio.sleep(1.0)  # Increased from 0.05 to 1.0 for Docker
             
             # Scroll to load more listings (infinite scroll)
             await self._scroll_to_load_listings(max_listings)
+            
+            # Debug: Check how many cards are visible
+            card_count = await self.page.evaluate("""
+                () => {
+                    const cards = document.querySelectorAll('li[data-cy="rp-property-cd"]');
+                    return cards.length;
+                }
+            """)
+            logger.debug(f"Found {card_count} property cards via JavaScript evaluation")
             
             # Extract all listing URLs from the page
             listing_urls = await self.search_extractor.extract_listing_urls_from_search()

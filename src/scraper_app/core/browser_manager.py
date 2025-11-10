@@ -5,12 +5,18 @@ Manages browser configuration and anti-bot measures
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page
 from typing import Optional
 import logging
+import os
 
 from src.scraper_app.core.proxy_manager import ProxyManager, Proxy
 from src.scraper_app.core.fingerprint_manager import FingerprintManager, BrowserFingerprint
 from src.scraper_app.config import Config
 
 logger = logging.getLogger(__name__)
+
+
+def is_docker_environment() -> bool:
+    """Check if running in Docker container"""
+    return os.path.exists("/.dockerenv") or os.getenv("DOCKER_CONTAINER") == "true"
 
 
 class BrowserManager:
@@ -32,7 +38,14 @@ class BrowserManager:
             fingerprint_manager: FingerprintManager instance (creates new if None)
             fingerprint: Specific fingerprint to use (generates new if None)
         """
-        self.headless = headless if headless is not None else Config.HEADLESS
+        # Force headless in Docker environments
+        if is_docker_environment():
+            self.headless = True
+            logger.info("Docker environment detected - forcing headless mode")
+        else:
+            self.headless = headless if headless is not None else Config.HEADLESS
+        
+        logger.info(f"Browser will run in {'headless' if self.headless else 'headed'} mode")
         self.playwright = None
         self.browser: Optional[Browser] = None
         self.context: Optional[BrowserContext] = None
@@ -57,9 +70,13 @@ class BrowserManager:
         
         # Get or generate fingerprint
         if not self.current_fingerprint:
+            # Use BR region for Brazilian sites, or use config
+            region = Config.FINGERPRINT_REGION
+            # Auto-detect region from URL if available (for future use)
             self.current_fingerprint = self.fingerprint_manager.generate_fingerprint(
-                region=Config.FINGERPRINT_REGION
+                region=region
             )
+            logger.debug(f"Generated fingerprint with region: {region}, UA: {self.current_fingerprint.user_agent[:60]}...")
         
         # Get proxy if enabled
         proxy_config = None
@@ -88,17 +105,24 @@ class BrowserManager:
         # Launch browser
         browser_args = []
         if Config.BROWSER_TYPE == "chromium":
-            # Add stealth arguments
+            # Add stealth arguments to avoid bot detection
             browser_args.extend([
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
                 "--disable-setuid-sandbox",
                 "--disable-web-security",
-                "--disable-features=IsolateOrigins,site-per-process"
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-infobars",
+                "--disable-notifications",
+                "--disable-popup-blocking",
+                "--window-size=1920,1080",
+                "--start-maximized",
+                "--lang=pt-BR,pt",
+                "--accept-lang=pt-BR,pt;q=0.9"
             ])
             
-            # Force headless mode in Docker/CI environments
+            # Force headless mode arguments when in headless mode
             if self.headless:
                 browser_args.extend([
                     "--headless=new",
@@ -107,8 +131,16 @@ class BrowserManager:
                     "--disable-extensions"
                 ])
         
+        logger.debug(f"Launching browser with headless={self.headless}, args={browser_args[:5]}...")
+        
+        # Always force headless=True when in Docker, regardless of config
+        launch_headless = self.headless
+        if is_docker_environment():
+            launch_headless = True
+            logger.info("Forcing headless=True for Docker environment")
+        
         self.browser = await browser_launcher.launch(
-            headless=self.headless,
+            headless=launch_headless,
             args=browser_args,
             proxy=proxy_config
         )

@@ -61,6 +61,63 @@ class SearchExtractor:
     async def extract_listing_urls_from_search(self) -> List[str]:
         """Extract listing URLs from search results page"""
         try:
+            # First, check if property cards exist
+            cards = await self.page.query_selector_all(SELECTOR_PROPERTY_CARD)
+            logger.debug(f"Found {len(cards)} property cards using selector: {SELECTOR_PROPERTY_CARD}")
+            
+            if len(cards) == 0:
+                # Try alternative approach: check page content
+                page_url = self.page.url
+                logger.warning(f"No property cards found on {page_url}")
+                
+                # Debug: Check what's actually on the page
+                try:
+                    page_info = await self.page.evaluate("""
+                        () => {
+                            return {
+                                title: document.title,
+                                url: window.location.href,
+                                bodyText: document.body ? document.body.innerText.substring(0, 500) : 'No body',
+                                hasDataCy: document.querySelector('[data-cy]') !== null,
+                                allDataCy: Array.from(document.querySelectorAll('[data-cy]')).map(el => el.getAttribute('data-cy')).slice(0, 10),
+                                allLinks: Array.from(document.querySelectorAll('a[href]')).map(a => a.href).filter(href => href.includes('imovel')).slice(0, 5)
+                            };
+                        }
+                    """)
+                    logger.debug(f"Page debug info - Title: {page_info.get('title', 'N/A')}")
+                    logger.debug(f"Has any data-cy elements: {page_info.get('hasDataCy', False)}")
+                    if page_info.get('allDataCy'):
+                        logger.debug(f"Found data-cy attributes: {page_info.get('allDataCy', [])}")
+                    if page_info.get('allLinks'):
+                        logger.debug(f"Found imovel links: {page_info.get('allLinks', [])}")
+                    logger.debug(f"Body text preview: {page_info.get('bodyText', 'N/A')[:200]}")
+                except Exception as debug_error:
+                    logger.debug(f"Error getting page debug info: {debug_error}")
+                
+                # Try to extract using JavaScript evaluation as fallback
+                try:
+                    urls_js = await self.page.evaluate(f"""
+                        () => {{
+                            const links = [];
+                            const cards = document.querySelectorAll('{SELECTOR_PROPERTY_CARD}');
+                            cards.forEach(card => {{
+                                const link = card.querySelector('a[href*="{URL_IMOVEL_PREFIX}"]');
+                                if (link) {{
+                                    const href = link.getAttribute('href');
+                                    if (href) links.push(href);
+                                }}
+                            }});
+                            return links;
+                        }}
+                    """)
+                    if urls_js:
+                        logger.info(f"Extracted {len(urls_js)} URLs using JavaScript evaluation")
+                        normalized_urls = [self._normalize_listing_url(url) for url in urls_js]
+                        cleaned_urls = [self._clean_listing_url(url) for url in normalized_urls]
+                        return cleaned_urls
+                except Exception as js_error:
+                    logger.debug(f"JavaScript evaluation failed: {js_error}")
+            
             listing_selectors = [
                 f'{SELECTOR_PROPERTY_CARD} a[href*="{URL_IMOVEL_PREFIX}"]',
                 f'a[href*="{URL_IMOVEL_PREFIX}venda-"]',
@@ -70,6 +127,7 @@ class SearchExtractor:
             for selector in listing_selectors:
                 extracted_urls = await self._extract_urls_from_selector(selector)
                 urls.update(extracted_urls)
+                logger.debug(f"Selector '{selector}' found {len(extracted_urls)} URLs")
             
             return list(urls)
             

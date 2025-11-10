@@ -12,6 +12,8 @@ services:
       # Mount .env file if it exists
       - ./.env:/app/.env:ro
     environment:
+      # Docker detection
+      - DOCKER_CONTAINER=true
       # Browser Configuration
       - HEADLESS=${HEADLESS:-True}
       - BROWSER_TYPE=${BROWSER_TYPE:-chromium}
@@ -22,6 +24,8 @@ services:
       - PROXY_MAX_FAILURES=${PROXY_MAX_FAILURES:-3}
       - PROXY_COOLDOWN_SECONDS=${PROXY_COOLDOWN_SECONDS:-300}
       - PROXY_CONFIG_FILE=${PROXY_CONFIG_FILE:-}
+
+      - MAX_PAGES=${MAX_PAGES:-20}
       
       # Fingerprint Configuration
       - FINGERPRINT_REGION=${FINGERPRINT_REGION:-US}

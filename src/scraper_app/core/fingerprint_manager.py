@@ -117,8 +117,24 @@ class FingerprintManager:
         Returns:
             BrowserFingerprint object
         """
-        # Get realistic user agent
-        user_agent = self.ua.random
+        # Get realistic user agent - prefer desktop for web scraping
+        # Mobile user agents often get different content or are blocked
+        max_attempts = 10
+        user_agent = None
+        for _ in range(max_attempts):
+            ua = self.ua.random
+            # Prefer Chrome/Edge/Firefox desktop user agents
+            if any(browser in ua for browser in ['Chrome', 'Edg', 'Firefox']) and \
+               not any(mobile in ua for mobile in ['Mobile', 'iPhone', 'iPad', 'Android']):
+                user_agent = ua
+                break
+        
+        # Fallback to any user agent if no desktop found
+        if not user_agent:
+            user_agent = self.ua.random
+            logger.warning(f"Using random user agent (may be mobile): {user_agent[:50]}...")
+        else:
+            logger.debug(f"Generated desktop user agent: {user_agent[:50]}...")
         
         # Determine platform from user agent
         platform = self._extract_platform(user_agent)
